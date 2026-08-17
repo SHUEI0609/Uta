@@ -9,8 +9,11 @@
 	"workers_dev": true,
 	"triggers": {
 		"crons": [
-			"7,37 * * * *"
+			"*/10 * * * *"
 		]
+	},
+	"vars": {
+		"RENDER_HEALTH_URL": "https://uta-discord.onrender.com/health"
 	},
 	"d1_databases": [
 		{

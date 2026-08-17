@@ -1,6 +1,6 @@
 # Discord AI Friend — Jarvis
 
-`Detail.yaml` v1仕様に合わせて、旧Hugging Face Space + llama.cpp/Ollama構成を全面的に置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論は公式DeepSeek Harnessを経由したCloudflare Workers AI無料枠を使用します。永続データはローカル開発時のSQLiteと、Koyeb配備時のCloudflare D1を切り替えられます。Hugging Faceや所有者PC上のモデルには依存しません。
+`Detail.yaml` v1仕様に合わせて、旧Hugging Face Space + llama.cpp/Ollama構成を全面的に置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論は公式DeepSeek Harnessを経由したCloudflare Workers AI無料枠を使用します。永続データはローカル開発時のSQLiteと、Render配備時のCloudflare D1を切り替えられます。Hugging Faceや所有者PC上のモデルには依存しません。
 
 ## 実装済み機能
 
@@ -22,7 +22,7 @@
 ```text
 Discord Gateway (Node.js, 常時接続)
   ├─ Auth / Memory / Task / Interruption / Attachment / GitHub services
-  ├─ Local: SQLite / Koyeb: authenticated Worker API → Cloudflare D1
+  ├─ Local: SQLite / Render: authenticated Worker API → Cloudflare D1
   └─ Main Router
        └─ Official DeepSeek Harness headless profile
             └─ Cloudflare Workers AI OpenAI-compatible endpoint (Free plan)
@@ -67,9 +67,9 @@ npm start
 
 SQLiteは既定で`./data/jarvis.sqlite`に作られます。`.env`、DB、GitHub token暗号化鍵をGitへ追加しないでください。
 
-## 4. Cloudflare D1を準備する（Koyeb用）
+## 4. Cloudflare D1を準備する（Render用）
 
-Koyeb無料枠には永続Volumeがないため、Memory、Task、設定、監査ログをD1へ保存します。BotからD1の管理APIを直接呼ばず、D1 Bindingを持つ認証付きWorkerだけを公開します。KoyebにはCloudflare API Tokenを保存しません。
+Render無料枠のローカルファイルは再起動や再配備で失われるため、Memory、Task、設定、監査ログをD1へ保存します。BotからD1の管理APIを直接呼ばず、D1 Bindingを持つ認証付きWorkerだけを公開します。RenderにはD1管理用のCloudflare API Tokenを保存しません。
 
 まずCloudflareへWranglerでログインし、D1を作成します。
 
@@ -94,12 +94,12 @@ npx wrangler deploy --cwd workers/d1-api
 
 最後の出力に表示される`https://jarvis-d1-api.<subdomain>.workers.dev`を控えます。ローカルでD1接続を試す場合は`workers/d1-api/.dev.vars.example`を`.dev.vars`へコピーし、実運用とは別の開発用値を設定します。
 
-## 5. Koyeb無料枠へ配備する
+## 5. Render無料枠へ配備する
 
-1. このrepositoryを非公開GitHub repositoryへ移します。`.env`は絶対にcommitしません。
-2. Koyebで`Web Service`を作り、GitHub repositoryと`Dockerfile`を選びます。
-3. Instanceは`Free`、公開portは`7860`、health check pathは`/health`にします。
-4. KoyebのEnvironment variablesへ`.env`の各値を登録し、次を追加・変更します。
+1. このrepositoryをGitHub repositoryへ移します。`.env`は絶対にcommitしません。
+2. Renderで`Web Service`を作り、GitHub repositoryと`Docker` runtimeを選びます。
+3. Instanceは`Free`、health check pathは`/health`にします。
+4. RenderのEnvironment variablesへ`.env`の各値を登録し、次を追加・変更します。
 
 ```dotenv
 DATABASE_BACKEND=d1
@@ -108,15 +108,11 @@ D1_PROXY_TOKEN=<WorkerのAPI_TOKENと同じ値>
 PORT=7860
 ```
 
-`D1_PROXY_TOKEN`、`DISCORD_TOKEN`、`CLOUDFLARE_API_TOKEN`、`GITHUB_TOKEN_ENCRYPTION_KEY`はKoyebのSecretとして扱います。D1利用時、SQLite volumeは不要です。
+`D1_PROXY_TOKEN`、`DISCORD_TOKEN`、`CLOUDFLARE_API_TOKEN`、`GITHUB_TOKEN_ENCRYPTION_KEY`はRenderのSecretとして扱います。D1利用時、永続diskは不要です。
 
-Koyebの配備後、その公開health URLをWorker Secretへ登録すると、Cloudflare Cronが毎時7分・37分に外形監視します。
+Renderの配備後、公開health URLを`workers/d1-api/wrangler.jsonc`の`RENDER_HEALTH_URL`へ設定すると、Cloudflare Cronが10分間隔で外形監視します。
 
-```bash
-npx wrangler secret put KOYEB_HEALTH_URL --cwd workers/d1-api
-```
-
-対話入力する値は`https://<Koyebのドメイン>/health`です。Koyeb無料Instanceは受信通信が1時間ないとsleepする仕様なので、この監視はスリープ回避に役立ちますが、GitHub Actions等と同様に常時稼働を保証しません。sleepや再配備後も、MemoryとTaskはD1から復元されます。
+Render無料Web Serviceは受信通信が15分ないとsleepするため、この監視はスリープ回避に役立ちますが、無料ホストで常時稼働を保証するものではありません。sleepや再配備後も、MemoryとTaskはD1から復元されます。
 
 ## 6. Dockerによるローカル常時稼働
 
@@ -132,7 +128,7 @@ docker run -d --name jarvis \
 
 同じ構成は`docker compose up -d --build`でも起動できます。
 
-Hugging Face固有のfront matter、モデルdownload、llama.cpp build、`start.sh`は削除済みです。所有者PCを切って動かす場合はKoyeb等の外部Node/Dockerホストを使います。ただし、第三者の無料ホストが永久に常時稼働することは、このrepositoryだけでは保証できません。
+Hugging Face固有のfront matter、モデルdownload、llama.cpp build、`start.sh`は削除済みです。所有者PCを切って動かす場合はRender等の外部Node/Dockerホストを使います。ただし、第三者の無料ホストが永久に常時稼働することは、このrepositoryだけでは保証できません。
 
 ## 7. GitHub連携（任意）
 

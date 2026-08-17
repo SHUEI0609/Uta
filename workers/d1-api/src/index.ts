@@ -10,7 +10,7 @@ interface BatchRequest {
 }
 
 // Standard Worker secrets are intentionally absent from wrangler.jsonc, so Wrangler cannot infer these bindings.
-type WorkerEnv = Env & { API_TOKEN: string; KOYEB_HEALTH_URL?: string };
+type WorkerEnv = Env & { API_TOKEN: string };
 
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_STATEMENTS = 32;
@@ -53,19 +53,19 @@ export default {
     }
   },
   scheduled(_controller: ScheduledController, env: WorkerEnv, ctx: ExecutionContext): void {
-    const healthUrl = env.KOYEB_HEALTH_URL?.trim();
+    const healthUrl = env.RENDER_HEALTH_URL.trim();
     if (!healthUrl) return;
-    ctx.waitUntil(checkKoyebHealth(healthUrl));
+    ctx.waitUntil(checkRenderHealth(healthUrl));
   },
 } satisfies ExportedHandler<WorkerEnv>;
 
-async function checkKoyebHealth(value: string): Promise<void> {
+async function checkRenderHealth(value: string): Promise<void> {
   const url = new URL(value);
-  if (url.protocol !== 'https:') throw new Error('KOYEB_HEALTH_URL must use HTTPS.');
+  if (url.protocol !== 'https:') throw new Error('RENDER_HEALTH_URL must use HTTPS.');
   const response = await fetch(url, { headers: { 'User-Agent': 'JarvisHealthMonitor/1.0' },
     signal: AbortSignal.timeout(20_000) });
   await response.body?.cancel();
-  console.log(JSON.stringify({ message: 'Koyeb health check', status: response.status, ok: response.ok }));
+  console.log(JSON.stringify({ message: 'Render health check', status: response.status, ok: response.ok }));
 }
 
 function authorized(request: Request, expected: string): boolean {
