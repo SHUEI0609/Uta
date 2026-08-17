@@ -1,6 +1,6 @@
 # Discord AI Friend — Jarvis
 
-`Detail.yaml` v1仕様に合わせて、旧Hugging Face Space + llama.cpp/Ollama構成を全面的に置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論は公式DeepSeek Harnessを経由したCloudflare Workers AI無料枠を使用します。永続データはローカル開発時のSQLiteと、Render配備時のCloudflare D1を切り替えられます。Hugging Faceや所有者PC上のモデルには依存しません。
+`Detail.yaml` v1仕様に合わせて、旧Hugging Face Space + llama.cpp/Ollama構成を全面的に置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論は公式DeepSeek HarnessとCloudflare Workers AI無料枠を使用します。Render無料Instanceでは0.1 CPUでHarnessのプロセス起動がDiscordの応答期限に収まらないため、同じモデルのOpenAI互換endpointへ直接フォールバックします。永続データはローカル開発時のSQLiteと、Render配備時のCloudflare D1を切り替えられます。Hugging Faceや所有者PC上のモデルには依存しません。
 
 ## 実装済み機能
 
