@@ -1,0 +1,53 @@
+# Jarvis deployment overlay for the official DeepSeek Harness headless profile.
+# It deliberately removes local mutation/shell/search tools: Discord-side services
+# own authorization and perform only the bounded operations in Detail.yaml.
+
+- id: system-prompt
+  config:
+    persona: !!js process.env.DSH_SYSTEM_PROMPT ?? 'あなたはDiscordに常駐する1人のAI友達Jarvisです。自然で親切な日本語で、場を支配せずに答えてください。内部Agent名や実装をユーザーに見せないでください。'
+
+- id: agent-default-model
+  config:
+    provider: cloudflare-free
+    model: !!js process.env.CLOUDFLARE_AI_MODEL ?? '@cf/meta/llama-4-scout-17b-16e-instruct'
+
+- id: llm-pi-ai
+  config:
+    providers:
+      cloudflare-free:
+        displayName: Cloudflare Workers AI Free
+        apiKeyEnv: CLOUDFLARE_API_TOKEN
+        api: openai-completions
+        baseURL: !!js process.env.CLOUDFLARE_AI_BASE_URL
+        models:
+          - id: !!js process.env.CLOUDFLARE_AI_MODEL ?? '@cf/meta/llama-4-scout-17b-16e-instruct'
+            contextWindow: 131000
+            maxTokens: 4096
+            input: [text]
+
+- id: tool-bash
+  disabled: true
+- id: tool-pwsh
+  disabled: true
+- id: tool-jobs
+  disabled: true
+- id: tool-fs
+  disabled: true
+- id: tool-fs-search
+  disabled: true
+- id: tool-str-replace-editor
+  disabled: true
+- id: tool-web
+  disabled: true
+- id: web-search-deepseek
+  disabled: true
+- id: tool-subagent
+  disabled: true
+- id: tool-subagent-fork
+  disabled: true
+- id: tool-workflow
+  disabled: true
+- id: tool-ralph
+  disabled: true
+- id: skill-filesystem
+  disabled: true

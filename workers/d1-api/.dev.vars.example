@@ -1,0 +1,2 @@
+# Copy to .dev.vars for local Worker development only.
+API_TOKEN=replace-with-a-long-random-secret

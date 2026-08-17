@@ -2,15 +2,17 @@
   "compilerOptions": {
     "target": "ESNext",
     "module": "ESNext",
-    "moduleResolution": "node",
+    "moduleResolution": "Bundler",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
     "outDir": "./dist",
     "rootDir": "./",
-    "lib": ["ESNext"]
+    "lib": ["ESNext"],
+    "resolveJsonModule": true,
+    "noUncheckedIndexedAccess": true
   },
-  "include": ["index.ts"],
+  "include": ["src/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules"]
 }

@@ -1,5 +1,16 @@
 node_modules
 .env
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
 model.gguf
 build
 llama.cpp
+data
+.dsh
+.wrangler
+coverage
+dist
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

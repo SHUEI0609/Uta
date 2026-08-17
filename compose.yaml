@@ -1,0 +1,12 @@
+services:
+  jarvis:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "7860:7860"
+    volumes:
+      - jarvis-data:/app/data
+
+volumes:
+  jarvis-data:

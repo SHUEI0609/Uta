@@ -1,0 +1,34 @@
+{
+	"$schema": "../../node_modules/wrangler/config-schema.json",
+	"name": "jarvis-d1-api",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-08-15",
+	"compatibility_flags": [
+		"nodejs_compat"
+	],
+	"workers_dev": true,
+	"triggers": {
+		"crons": [
+			"7,37 * * * *"
+		]
+	},
+	"d1_databases": [
+		{
+			"binding": "DB",
+			"database_name": "jarvis-discord",
+			"database_id": "46c8204d-152d-43db-ae37-61509f3d4122",
+			"migrations_dir": "migrations",
+			"remote": true
+		}
+	],
+	"observability": {
+		"enabled": true,
+		"logs": {
+			"head_sampling_rate": 1
+		},
+		"traces": {
+			"enabled": true,
+			"head_sampling_rate": 0.01
+		}
+	}
+}

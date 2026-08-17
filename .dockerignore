@@ -1,0 +1,9 @@
+.git
+.env
+node_modules
+dist
+coverage
+data
+llama.cpp
+model.gguf
+npm-debug.log*
