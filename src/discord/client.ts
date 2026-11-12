@@ -10,7 +10,7 @@ import type { TaskService } from '../services/tasks.js';
 import type { InterruptionService } from '../services/interruption.js';
 import type { GithubService } from '../services/github.js';
 import type { HarnessRouter } from '../harness/router.js';
-import type { AttachmentInput, ChatResult, UserSettings } from '../types/index.js';
+import type { AttachmentInput, ChatRequest, ChatResult, UserSettings } from '../types/index.js';
 import { commandDefinitions } from './commands.js';
 import { splitDiscordMessage } from './messages.js';
 
@@ -50,7 +50,8 @@ export function createDiscordClient(config: AppConfig, services: DiscordServices
       console.error('Interaction failed:', error);
       const content = `処理に失敗しました: ${safeError(error)}`;
       if (interaction.isRepliable()) {
-        if (interaction.deferred || interaction.replied) await interaction.editReply({ content, components: [] });
+        if (interaction.replied) await interaction.followUp({ content, flags: MessageFlags.Ephemeral });
+        else if (interaction.deferred) await interaction.editReply({ content, components: [] });
         else await interaction.reply({ content, flags: MessageFlags.Ephemeral });
       }
     }
@@ -90,7 +91,7 @@ async function handleCommand(interaction: ChatInputCommandInteraction, services:
     const result = await services.router.handle({ guildId, channelId, userId: interaction.user.id,
       userName: interaction.user.displayName, sourceId: interaction.id, createdAt: interaction.createdTimestamp,
       prompt: prompt || 'この添付ファイルを解析して', attachments });
-    await sendInteractionResult(interaction, result);
+    await sendInteractionResult(interaction, result, services.memory);
     return;
   }
   if (interaction.commandName === 'tasks') {
@@ -196,11 +197,15 @@ async function handleMessage(message: Message, client: Client, services: Discord
   const legacy = message.content.startsWith('!ai ');
   const mentioned = botId ? message.mentions.users.has(botId) : false;
   let repliedToBot = false;
-  let replyContext: string | undefined;
+  let replyContext: ChatRequest['replyContext'];
   if (message.reference?.messageId) {
     const referenced = await message.fetchReference().catch(() => null);
     repliedToBot = referenced?.author.id === botId;
-    replyContext = referenced ? `${referenced.author.displayName}: ${referenced.content}` : undefined;
+    if (referenced) {
+      let authorName = referenced.member?.displayName ?? referenced.author.displayName;
+      if (referenced.author.bot) authorName += ' (Bot)';
+      replyContext = { authorName, content: referenced.content, createdAt: referenced.createdTimestamp };
+    }
   }
   if (!legacy && !mentioned && !repliedToBot) {
     const decision = await services.interruption.evaluate(message.channelId, message.author.id, message.content);
@@ -209,7 +214,7 @@ async function handleMessage(message: Message, client: Client, services: Discord
     const result = await services.router.handle({ guildId, channelId: message.channelId, userId: message.author.id,
       userName: authorName, sourceId: message.id, createdAt: message.createdTimestamp,
       prompt: message.content, spontaneous: true });
-    await sendMessageResult(message, result);
+    await sendMessageResult(message, result, services.memory);
     return;
   }
   const prompt = legacy ? message.content.slice(4).trim()
@@ -220,20 +225,41 @@ async function handleMessage(message: Message, client: Client, services: Discord
     userName: authorName, sourceId: message.id, createdAt: message.createdTimestamp,
     prompt: prompt || 'この添付ファイルを解析して', replyContext,
     attachments: message.attachments.map(toAttachmentInput) });
-  await sendMessageResult(message, result);
+  await sendMessageResult(message, result, services.memory);
 }
 
-async function sendInteractionResult(interaction: ChatInputCommandInteraction, result: ChatResult): Promise<void> {
+async function sendInteractionResult(interaction: ChatInputCommandInteraction, result: ChatResult, memory: MemoryService): Promise<void> {
   const chunks = splitDiscordMessage(result.content);
-  await interaction.editReply(chunks[0] ?? '応答が空でした。');
-  for (const chunk of chunks.slice(1)) await interaction.followUp(chunk);
+  const reply = await interaction.editReply(chunks[0] ?? '応答が空でした。');
+  await saveReply(reply, interaction.user.id, result, memory);
+  for (const chunk of chunks.slice(1)) {
+    const followUp = await interaction.followUp(chunk);
+    await saveReply(followUp, interaction.user.id, result, memory);
+  }
 }
 
-async function sendMessageResult(message: Message, result: ChatResult): Promise<void> {
+async function sendMessageResult(message: Message, result: ChatResult, memory: MemoryService): Promise<void> {
   const chunks = splitDiscordMessage(result.content);
-  if (chunks[0]) await message.reply(chunks[0]);
+  if (chunks[0]) {
+    const reply = await message.reply(chunks[0]);
+    await saveReply(reply, message.author.id, result, memory);
+  }
   if (!message.channel.isSendable()) return;
-  for (const chunk of chunks.slice(1)) await message.channel.send(chunk);
+  for (const chunk of chunks.slice(1)) {
+    const reply = await message.channel.send(chunk);
+    await saveReply(reply, message.author.id, result, memory);
+  }
+}
+
+async function saveReply(message: Message, userId: string, result: ChatResult, memory: MemoryService): Promise<void> {
+  if (result.degraded) return;
+  try {
+    await memory.saveReply({ guildId: message.guildId ?? 'dm', channelId: message.channelId, messageId: message.id,
+      authorId: message.author.id, authorName: `${message.member?.displayName ?? message.author.displayName} (Bot)`,
+      content: message.content, createdAt: message.createdTimestamp }, userId, result.content);
+  } catch (error) {
+    console.error('Reply memory failed:', error);
+  }
 }
 
 function toAttachmentInput(file: Attachment): AttachmentInput {

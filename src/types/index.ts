@@ -69,7 +69,7 @@ export interface ChatRequest {
   sourceId?: string;
   createdAt?: number;
   prompt: string;
-  replyContext?: string;
+  replyContext?: Pick<StoredMessage, 'authorName' | 'content' | 'createdAt'>;
   attachments?: AttachmentInput[];
   spontaneous?: boolean;
 }

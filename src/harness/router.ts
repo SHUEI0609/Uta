@@ -29,8 +29,7 @@ export class HarnessRouter {
         authorId: request.userId, authorName: request.userName, content: request.prompt, createdAt: request.createdAt });
     }
     const sections: string[] = [];
-    sections.push(await this.memory.context(request.guildId, request.channelId, request.userId));
-    if (request.replyContext) sections.push(`【返信先の文脈】\n${request.replyContext.slice(0, 4000)}`);
+    sections.push(await this.memory.context(request.guildId, request.channelId, request.userId, request.replyContext));
 
     let parsedAttachments: Awaited<ReturnType<AttachmentService['parseAll']>> = [];
     if (request.attachments?.length) {
@@ -56,7 +55,7 @@ export class HarnessRouter {
     const role = agents.includes('coding') ? 'coding' : agents.includes('web') || agents.includes('development') ? 'reasoning' : 'light';
     const instruction = request.spontaneous
       ? '自然な乱入として1〜2文だけで返答する。役立つ具体的な一言にし、長文や執拗な質問を避ける。'
-      : '質問へ直接答える。必要以上に長くせず、Discordで自然に読める文体にする。';
+      : '質問へ結論から直接答える。雑談は簡潔にし、説明が必要な質問には理由や手順を含めて十分な詳しさで答える。Discordで自然に読める文体にする。';
     const prompt = `以下はJarvisの1ターンです。${instruction}\n内部Agent名は回答に出さない。\n\n${sections.join('\n\n')}\n\n【現在の本人の依頼】\n${request.userName}: ${request.prompt}`;
     try {
       const content = await this.llm.complete({ prompt, route: role,

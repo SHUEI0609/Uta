@@ -7,7 +7,7 @@
 - `/ai`、`/auth`、`/tasks`、`/memory`
 - Mention、BotへのReply、移行期間用の既存`!ai`
 - Discordの上限に合わせた、コードフェンスを保つ長文分割
-- 同一チャンネルに限定した30日Memory、Personal Memory、長期Server Personality要約
+- 同一チャンネルに限定した30日Memory、過去24時間の会話参照、Personal Memory、長期Server Personality要約
 - 会話からのTask自動抽出、owner/deadline推定、訂正・完了反映
 - 約20メッセージに1回を基準とした文脈スコア付き乱入、10分cooldown、時間上限
 - PDF、画像、テキスト、コード、制限付きZIPの解析
@@ -54,6 +54,13 @@ CLOUDFLARE_API_TOKEN=...
 ```
 
 開発中は`DISCORD_GUILD_ID`も指定するとSlash Commandが対象guildへ即時登録されます。未指定時はglobal commandとなり、反映に時間がかかる場合があります。
+
+会話生成の既定モデルはGLM-4.7-Flash（`@cf/zai-org/glm-4.7-flash`）です。画像解析はLlama 4 Scoutを使用します。
+モデルを変更する場合は`CLOUDFLARE_AI_MODEL`を設定し、Botを再起動してください。Renderで同変数を設定済みの場合は、Render側の値も変更する必要があります。
+
+回答には、同じチャンネルの過去24時間から直近50件・最大12,000文字を、日本時間の発言時刻と発言者付きで渡します。Botが送信した回答も含みます。
+Memory OFFの依頼者への回答や秘密情報らしい回答は保存せず、Botの回答からPersonal Memoryや口調を学習しません。返信先の文脈も過去24時間以内に限定します。
+ログの保存期間は30日のままで、Personal MemoryとServer Personalityの保持期間は変更しません。Bot停止中や変更前のBot回答をDiscordから遡って取得する処理はありません。
 
 ## 3. ローカル実行
 
@@ -168,6 +175,8 @@ npm run check
 ```
 
 Task抽出・訂正、Memory分離/retention、auth isolation、乱入制御、長文分割を自動テストしています。実際のDiscord token、Cloudflare token、GitHub OAuthはsecretを必要とするため、CIの単体テストでは外部呼び出しを行いません。
+
+Workers AIのHTTPエラーは、サーバーログの `Workers AI request failed:` で確認できます。HTTPステータス、モデル名、Cloudflareの `cf-ray`、エラー本文（秘密情報を伏せて最大2,000文字）を記録します。会話生成と画像解析の両方が対象です。RenderではサービスのLogsを開いて確認してください。
 
 ## 現時点の意図的な縮退
 

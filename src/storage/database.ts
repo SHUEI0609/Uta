@@ -142,10 +142,12 @@ export class AppDatabase {
     return result.changes > 0;
   }
 
-  async recentMessages(channelId: string, limit = 50): Promise<StoredMessage[]> {
+  async recentMessages(channelId: string, limit = 50, since = 0): Promise<StoredMessage[]> {
+    const now = Date.now();
     const result = await this.query(`SELECT guild_id, channel_id, message_id, author_id, author_name, content, created_at
-      FROM channel_messages WHERE channel_id = ? AND expires_at > ? ORDER BY created_at DESC LIMIT ?`,
-    [channelId, Date.now(), limit]);
+      FROM channel_messages WHERE channel_id = ? AND expires_at > ? AND created_at >= ? AND created_at <= ?
+      ORDER BY created_at DESC, rowid DESC LIMIT ?`,
+    [channelId, now, since, now, limit]);
     return result.results.reverse().map((row) => ({
       guildId: String(row.guild_id), channelId: String(row.channel_id), messageId: String(row.message_id),
       authorId: String(row.author_id), authorName: String(row.author_name), content: String(row.content),
