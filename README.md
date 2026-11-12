@@ -56,6 +56,7 @@ CLOUDFLARE_API_TOKEN=...
 開発中は`DISCORD_GUILD_ID`も指定するとSlash Commandが対象guildへ即時登録されます。未指定時はglobal commandとなり、反映に時間がかかる場合があります。
 
 会話生成と画像解析の既定モデルはLlama 4 Scout（`@cf/meta/llama-4-scout-17b-16e-instruct`）です。
+普段の会話は敬語なしの自然なタメ口で返し、文章作成などで文体を指定された場合はその指定に合わせます。
 モデルを変更する場合は`CLOUDFLARE_AI_MODEL`を設定し、Botを再起動してください。Renderで同変数を設定済みの場合は、Render側の値も変更する必要があります。
 
 回答には、同じチャンネルの過去24時間から直近50件・最大12,000文字を、日本時間の発言時刻と発言者付きで渡します。Botが送信した回答も含みます。
