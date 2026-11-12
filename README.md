@@ -1,4 +1,4 @@
-# Discord AI Friend — Jarvis
+# Discord Bot — 雪村ウタ
 
 `Detail.yaml` v1仕様に合わせて、旧Hugging Face Space + llama.cpp/Ollama構成を全面的に置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論は公式DeepSeek HarnessとCloudflare Workers AI無料枠を使用します。Render無料Instanceでは0.1 CPUでHarnessのプロセス起動がDiscordの応答期限に収まらないため、同じモデルのOpenAI互換endpointへ直接フォールバックします。永続データはローカル開発時のSQLiteと、Render配備時のCloudflare D1を切り替えられます。Hugging Faceや所有者PC上のモデルには依存しません。
 
@@ -39,7 +39,7 @@ Cloudflare Workers単体はDiscord Gatewayの長時間接続と公式HarnessのN
 
 ## 2. Cloudflare無料推論設定
 
-Cloudflare DashboardでWorkers AIを有効にし、Account IDとWorkers AI実行権限を持つAPI Tokenを用意します。有料プランへの自動変更処理はありません。Workers Freeの無料割当を超えるとCloudflare側の呼び出しは失敗し、Jarvisはその日AI生成を停止します。
+Cloudflare DashboardでWorkers AIを有効にし、Account IDとWorkers AI実行権限を持つAPI Tokenを用意します。有料プランへの自動変更処理はありません。Workers Freeの無料割当を超えるとCloudflare側の呼び出しは失敗し、Botはその日AI生成を停止します。
 
 ```bash
 cp .env.example .env
@@ -56,7 +56,7 @@ CLOUDFLARE_API_TOKEN=...
 開発中は`DISCORD_GUILD_ID`も指定するとSlash Commandが対象guildへ即時登録されます。未指定時はglobal commandとなり、反映に時間がかかる場合があります。
 
 会話生成と画像解析の既定モデルはLlama 4 Scout（`@cf/meta/llama-4-scout-17b-16e-instruct`）です。
-普段の会話は敬語なしの自然なタメ口で返し、文章作成などで文体を指定された場合はその指定に合わせます。
+Vtuber「雪村ウタ」として会話し、AIや設定・返答方針についてのメタな説明は自分から挟みません。普段は敬語なしの自然なタメ口で返し、文章作成などで文体を指定された場合はその指定に合わせます。
 モデルを変更する場合は`CLOUDFLARE_AI_MODEL`を設定し、Botを再起動してください。Renderで同変数を設定済みの場合は、Render側の値も変更する必要があります。
 
 回答には、同じチャンネルの過去24時間から直近50件・最大12,000文字を、日本時間の発言時刻と発言者付きで渡します。Botが送信した回答も含みます。
