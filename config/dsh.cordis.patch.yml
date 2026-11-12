@@ -9,7 +9,7 @@
 - id: agent-default-model
   config:
     provider: cloudflare-free
-    model: !!js process.env.CLOUDFLARE_AI_MODEL ?? '@cf/zai-org/glm-4.7-flash'
+    model: !!js process.env.CLOUDFLARE_AI_MODEL ?? '@cf/meta/llama-4-scout-17b-16e-instruct'
 
 - id: llm-pi-ai
   config:
@@ -20,7 +20,7 @@
         api: openai-completions
         baseURL: !!js process.env.CLOUDFLARE_AI_BASE_URL
         models:
-          - id: !!js process.env.CLOUDFLARE_AI_MODEL ?? '@cf/zai-org/glm-4.7-flash'
+          - id: !!js process.env.CLOUDFLARE_AI_MODEL ?? '@cf/meta/llama-4-scout-17b-16e-instruct'
             contextWindow: 131000
             maxTokens: 4096
             input: [text]

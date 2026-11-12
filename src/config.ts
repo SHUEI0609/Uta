@@ -51,7 +51,7 @@ export function loadConfig(): AppConfig {
     aiTimeoutMs: integer('AI_TIMEOUT_MS', 120_000),
     cloudflareAccountId: optional('CLOUDFLARE_ACCOUNT_ID'),
     cloudflareApiToken: optional('CLOUDFLARE_API_TOKEN'),
-    cloudflareModel: optional('CLOUDFLARE_AI_MODEL') ?? '@cf/zai-org/glm-4.7-flash',
+    cloudflareModel: optional('CLOUDFLARE_AI_MODEL') ?? '@cf/meta/llama-4-scout-17b-16e-instruct',
     cloudflareVisionModel: optional('CLOUDFLARE_VISION_MODEL') ?? '@cf/meta/llama-4-scout-17b-16e-instruct',
     githubClientId: optional('GITHUB_CLIENT_ID'), githubEncryptionKey: optional('GITHUB_TOKEN_ENCRYPTION_KEY'),
     dshPatchPath: resolve('./config/dsh.cordis.patch.yml'), dshHome: resolve(dataDir, '.dsh'),

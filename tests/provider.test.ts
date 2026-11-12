@@ -41,7 +41,7 @@ describe('HarnessProvider on Render', () => {
     expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/ai/v1/chat/completions'),
       expect.objectContaining({ method: 'POST' }));
     const body = JSON.parse(fetchMock.mock.calls[0]?.[1].body as string);
-    expect(body.model).toBe('@cf/zai-org/glm-4.7-flash');
+    expect(body.model).toBe('@cf/meta/llama-4-scout-17b-16e-instruct');
   });
 
   it('429では無料枠を停止状態にする', async () => {
@@ -142,7 +142,7 @@ function config(dataDir: string): AppConfig {
     aiTimeoutMs: 5_000,
     cloudflareAccountId: 'account-id',
     cloudflareApiToken: 'api-token',
-    cloudflareModel: '@cf/zai-org/glm-4.7-flash',
+    cloudflareModel: '@cf/meta/llama-4-scout-17b-16e-instruct',
     cloudflareVisionModel: '@cf/meta/llama-4-scout-17b-16e-instruct',
     dshPatchPath: join(dataDir, 'dsh.patch.yml'),
     dshHome: join(dataDir, '.dsh'),
