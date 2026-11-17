@@ -4,7 +4,152 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { AppConfig } from '../src/config.js';
 import { HarnessProvider } from '../src/harness/provider.js';
-import type { QuotaService } from '../src/services/quota.js';
+import { QuotaService } from '../src/services/quota.js';
+import { AppDatabase } from '../src/storage/database.js';
+
+describe('Gemini Hydrogen', () => {
+  let dataDir: string;
+  let errorLog: ReturnType<typeof vi.spyOn>;
+
+  beforeEach(() => {
+    dataDir = mkdtempSync(join(tmpdir(), 'jarvis-gemini-'));
+    vi.stubEnv('RENDER', 'true');
+    errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  it('Geminiのキーがあれば画像と本文を1回で送り、思考を除いた回答を返す', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ candidates: [{ content: { parts: [
+      { thought: true, text: '内部の思考' }, { text: '画像には' }, { text: '猫がいるよ。' },
+    ] } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new HarnessProvider(settings, quota.service);
+    const answer = await provider.complete({ prompt: '画像を説明して', route: 'light',
+      imageDataUrls: ['data:image/png;base64,dGVzdA=='] });
+
+    expect(answer).toBe('画像には猫がいるよ。');
+    expect(provider.name).toBe('gemini-4-hydrogen');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    const [url, options] = fetchMock.mock.calls[0]!;
+    expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent');
+    expect(options.headers['x-goog-api-key']).toBe('gemini-secret');
+    const body = JSON.parse(options.body);
+    expect(body.systemInstruction.parts[0].text).toContain('雪村ウタ');
+    expect(body.contents).toEqual([{ role: 'user', parts: [
+      { text: '画像を説明して' }, { inlineData: { mimeType: 'image/png', data: 'dGVzdA==' } },
+    ] }]);
+    expect(body.generationConfig.thinkingConfig.thinkingLevel).toBe('low');
+    expect(quota.consume).toHaveBeenCalledOnce();
+  });
+
+  it('GeminiでもBotの日次上限に達したらAPIを呼ばない', async () => {
+    const db = new AppDatabase(':memory:');
+    await db.initialize();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const fetchMock = vi.fn().mockResolvedValue(Response.json({ candidates: [{ content: { parts: [{ text: '回答' }] } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new HarnessProvider(settings, new QuotaService(db, 1));
+
+    try {
+      expect(await provider.complete({ prompt: '質問', route: 'light' })).toBe('回答');
+      await expect(provider.complete({ prompt: '次の質問', route: 'light' })).rejects.toThrow(/安全上限/u);
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      await db.close();
+    }
+  });
+
+  it('分単位の429では終日停止せず、次の依頼で再度生成できる', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(Response.json({ error: { code: 429, status: 'RESOURCE_EXHAUSTED', details: [
+        { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [
+          { quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' },
+        ] },
+      ] } }, { status: 429 }))
+      .mockResolvedValueOnce(Response.json({ candidates: [{ content: { parts: [{ text: '再開したよ' }] } }] }));
+    vi.stubGlobal('fetch', fetchMock);
+    const provider = new HarnessProvider(settings, quota.service);
+
+    await expect(provider.complete({ prompt: '質問', route: 'light' })).rejects.toThrow(/一時的/u);
+    expect(await provider.complete({ prompt: '再度質問', route: 'light' })).toBe('再開したよ');
+    expect(quota.markProviderExhausted).not.toHaveBeenCalled();
+  });
+
+  it('日次の429はGoogle側のリセット待ちとして案内する', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({ error: { code: 429, details: [
+      { '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [
+        { quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier' },
+      ] },
+    ] } }, { status: 429 })));
+
+    await expect(new HarnessProvider(settings, quota.service).complete({ prompt: '質問', route: 'light' }))
+      .rejects.toThrow(/1日.*Google側/u);
+    expect(quota.markProviderExhausted).not.toHaveBeenCalled();
+  });
+
+  it('HTTPエラーを秘密情報を伏せて記録し、Cloudflareには切り替えない', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const fetchMock = vi.fn().mockResolvedValue(new Response('invalid gemini-secret api-token', { status: 403 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new HarnessProvider(settings, quota.service).complete({ prompt: '質問', route: 'light' }))
+      .rejects.toThrow(/^Gemini APIへの接続に失敗しました \(403\)。$/u);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(errorLog).toHaveBeenCalledWith('Gemini API request failed:', expect.objectContaining({
+      status: 403, model: 'gemini-4-hydrogen', body: 'invalid [REDACTED] [REDACTED]',
+    }));
+  });
+
+  it('不正な画像データはAPIを呼ばずに拒否する', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new HarnessProvider(settings, quota.service).complete({ prompt: '画像', route: 'light',
+      imageDataUrls: ['https://example.com/private.png'] })).rejects.toThrow('画像データの形式が不正です。');
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(quota.consume).not.toHaveBeenCalled();
+  });
+
+  it('複数画像を合わせて20MBを超える場合はAPIを呼ばずに案内する', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const image = 'data:image/png;base64,' + 'A'.repeat(10_000_000);
+
+    await expect(new HarnessProvider(settings, quota.service).complete({ prompt: '画像を説明して', route: 'light',
+      imageDataUrls: [image, image] })).rejects.toThrow(/20MB.*画像.*減らして/u);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(quota.consume).not.toHaveBeenCalled();
+  });
+
+  it.each([{ candidates: [] }, { candidates: [{ content: { parts: [{ thought: true, text: '思考のみ' }] } }] }])(
+    '回答がない場合は思考を代わりに表示しない', async (response) => {
+      const quota = fakeQuota();
+      const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json(response)));
+
+      await expect(new HarnessProvider(settings, quota.service).complete({ prompt: '質問', route: 'light' }))
+        .rejects.toThrow('Gemini APIから空の応答が返りました。');
+    },
+  );
+});
 
 describe('HarnessProvider on Render', () => {
   let dataDir: string;

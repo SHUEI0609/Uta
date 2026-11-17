@@ -1,6 +1,7 @@
 import type { AppDatabase } from '../storage/database.js';
 
 export class QuotaExceededError extends Error {}
+export class RateLimitError extends Error {}
 
 export class QuotaService {
   constructor(private readonly db: AppDatabase, private readonly dailyLimit: number) {}

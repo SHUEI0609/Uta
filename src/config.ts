@@ -25,6 +25,7 @@ export interface AppConfig {
   port: number;
   aiDailyRequestLimit: number;
   aiTimeoutMs: number;
+  geminiApiKey?: string;
   cloudflareAccountId?: string;
   cloudflareApiToken?: string;
   cloudflareModel: string;
@@ -49,6 +50,7 @@ export function loadConfig(): AppConfig {
     port: integer('PORT', 7860),
     aiDailyRequestLimit: integer('AI_DAILY_REQUEST_LIMIT', 100),
     aiTimeoutMs: integer('AI_TIMEOUT_MS', 120_000),
+    geminiApiKey: optional('GEMINI_API_KEY'),
     cloudflareAccountId: optional('CLOUDFLARE_ACCOUNT_ID'),
     cloudflareApiToken: optional('CLOUDFLARE_API_TOKEN'),
     cloudflareModel: optional('CLOUDFLARE_AI_MODEL') ?? '@cf/meta/llama-4-scout-17b-16e-instruct',

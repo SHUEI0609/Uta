@@ -5,7 +5,7 @@ import type { TaskService } from '../services/tasks.js';
 import type { AttachmentService } from '../services/attachments.js';
 import type { WebService } from '../services/web.js';
 import type { GithubService } from '../services/github.js';
-import { QuotaExceededError } from '../services/quota.js';
+import { QuotaExceededError, RateLimitError } from '../services/quota.js';
 
 export class HarnessRouter {
   constructor(
@@ -65,6 +65,7 @@ export class HarnessRouter {
       const message = error instanceof Error ? error.message : String(error);
       const quota = error instanceof QuotaExceededError || /(quota|無料AI枠|neuron|429)/iu.test(message);
       console.error('AI generation failed:', message);
+      if (error instanceof RateLimitError) return { content: message, agents, degraded: true };
       return { content: quota
         ? '今日は無料AI枠に達したため、課金せず会話生成を停止しています。`/tasks`・`/memory`・`/auth` は引き続き使えます。'
         : `AI生成機能を利用できません。非LLM機能は動作中です。\n\`${sanitizeError(message)}\``, agents, degraded: true };

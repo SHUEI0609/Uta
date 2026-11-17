@@ -1,6 +1,6 @@
 # Discord Bot — 雪村ウタ
 
-`Detail.yaml` v1仕様に合わせて、旧Hugging Face Space + llama.cpp/Ollama構成を全面的に置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論は公式DeepSeek HarnessとCloudflare Workers AI無料枠を使用します。Render無料Instanceでは0.1 CPUでHarnessのプロセス起動がDiscordの応答期限に収まらないため、同じモデルのOpenAI互換endpointへ直接フォールバックします。永続データはローカル開発時のSQLiteと、Render配備時のCloudflare D1を切り替えられます。Hugging Faceや所有者PC上のモデルには依存しません。
+旧Hugging Face Space + llama.cpp/Ollama構成を置き換えたDiscord Botです。Bot本体は常時稼働するNode.jsプロセス、推論にはGemini 4 HydrogenのAPI無料枠を使用できます。Geminiのキーが未設定の場合は、従来の公式DeepSeek HarnessとCloudflare Workers AIを使用します。RenderではHarnessを起動せずWorkers AIの互換APIを直接呼びます。永続データはローカル開発時のSQLiteと、Render配備時のCloudflare D1を切り替えられます。
 
 ## 実装済み機能
 
@@ -14,7 +14,7 @@
 - 必要時だけ使う無料Web検索。外部コンテンツは未信頼データとして隔離
 - GitHub Device Flow接続、本人権限でのrepo/Issue読み取り
 - GitHubファイル作成・更新・削除、Issue更新、PR作成のDiscord確認ボタン。承認者を再検証し、結果を監査
-- 無料枠のアプリ側日次上限と、provider quota超過時の課金なしdegrade
+- アプリ側の日次上限と、API利用上限に達した場合の生成停止・案内
 - `/health`、Docker healthcheck、SIGTERM graceful shutdown
 
 ## 構成
@@ -24,11 +24,11 @@ Discord Gateway (Node.js, 常時接続)
   ├─ Auth / Memory / Task / Interruption / Attachment / GitHub services
   ├─ Local: SQLite / Render: authenticated Worker API → Cloudflare D1
   └─ Main Router
-       └─ Official DeepSeek Harness headless profile
-            └─ Cloudflare Workers AI OpenAI-compatible endpoint (Free plan)
+       ├─ GEMINI_API_KEYあり → Gemini 4 Hydrogen API（テキスト・画像を1回で送信）
+       └─ GEMINI_API_KEYなし → DeepSeek Harness / Cloudflare Workers AI
 ```
 
-Cloudflare Workers単体はDiscord Gatewayの長時間接続と公式HarnessのNode runtimeを同時にホストする場所にはしていません。Workers AIだけを無料推論先として使い、Gatewayコンテナは常時稼働可能なNode 22.19+ホストに置きます。
+Gatewayコンテナは常時稼働可能なNode 22.19+ホストに置きます。Gemini利用時はHarnessのプロセスを起動しません。
 
 ## 1. Discord App設定
 
@@ -37,9 +37,11 @@ Cloudflare Workers単体はDiscord Gatewayの長時間接続と公式HarnessのN
 3. OAuth2 URL Generatorで`bot`と`applications.commands`を選び、必要なサーバーへ追加します。
 4. Bot権限は最低限`View Channels`、`Send Messages`、`Read Message History`、`Attach Files`を与えます。
 
-## 2. Cloudflare無料推論設定
+## 2. Gemini無料推論設定
 
-Cloudflare DashboardでWorkers AIを有効にし、Account IDとWorkers AI実行権限を持つAPI Tokenを用意します。有料プランへの自動変更処理はありません。Workers Freeの無料割当を超えるとCloudflare側の呼び出しは失敗し、Botはその日AI生成を停止します。
+[Google AI Studio](https://aistudio.google.com/api-keys)で、課金アカウントを紐付けていないFree TierプロジェクトのAPIキーを作成します。[Projects](https://aistudio.google.com/projects)でFree Tierであることを確認してください。
+
+APIには無料枠専用の指定がありません。有料Tierのキーを使うと、このBotからの呼び出しにも料金が発生します。Bot側の回数制限は無課金を保証する機能ではありません。詳しくは[公式の課金説明](https://aistudio.google.com/docs/billing)を参照してください。
 
 ```bash
 cp .env.example .env
@@ -49,16 +51,27 @@ cp .env.example .env
 
 ```dotenv
 DISCORD_TOKEN=...
-CLOUDFLARE_ACCOUNT_ID=...
-CLOUDFLARE_API_TOKEN=...
+GEMINI_API_KEY=...
 ```
 
 開発中は`DISCORD_GUILD_ID`も指定するとSlash Commandが対象guildへ即時登録されます。未指定時はglobal commandとなり、反映に時間がかかる場合があります。
 
-会話生成と画像解析の既定モデルはLlama 4 Scout（`@cf/meta/llama-4-scout-17b-16e-instruct`）です。
+`GEMINI_API_KEY`を設定するとGemini 4 Hydrogen（`gemini-4-hydrogen`）を使います。画像と本文は同じリクエストに含め、思考レベルは低くして会話の待ち時間を抑えます。障害・上限超過時に別のモデルやCloudflareへ自動で切り替える処理はありません。
+
+Geminiへ送るリクエスト全体が20MBを超える場合は、APIを呼ばず画像のサイズ・枚数を減らすよう案内します。
+
+`AI_DAILY_REQUEST_LIMIT`は既定100回で、Bot全体の上限です。失敗したAPI呼び出しも数え、UTC日付でリセットします。Google側の分単位・日次上限は別に適用され、実際の割当は[AI Studio](https://aistudio.google.com/rate-limit)で確認できます。429では待機を案内し、次の依頼で再度試します。日次枠だと判別できた場合はGoogle側のリセット待ちと案内します。Googleの日次枠は太平洋時間でリセットされるため、Geminiの429でBot独自の終日停止フラグは立てません。
+
+### 従来のCloudflare Workers AIを使う場合
+
+`GEMINI_API_KEY`を未設定にし、Cloudflare DashboardでWorkers AIを有効にして、`CLOUDFLARE_ACCOUNT_ID`と`CLOUDFLARE_API_TOKEN`を設定します。会話生成と画像解析の既定モデルはLlama 4 Scout（`@cf/meta/llama-4-scout-17b-16e-instruct`）です。Workers Freeの割当超過時は、その日のAI生成を停止します。
+
+モデルを変更する場合は`CLOUDFLARE_AI_MODEL`を設定して再起動してください。画像解析は`CLOUDFLARE_VISION_MODEL`で指定できます。Renderの環境変数を設定済みの場合はRender側も更新してください。
+
+### 会話とMemory
+
 Vtuber「雪村ウタ」として会話し、AIや設定・返答方針についてのメタな説明は自分から挟みません。普段は敬語なしの自然なタメ口で返し、文章作成などで文体を指定された場合はその指定に合わせます。
 自分への悪口には、その内容に合わせて短く強気に言い返し、履歴にある同じ台詞や書き出しの繰り返しを避けます。「死ね」「しね」などの強い暴言を直接向けられたときは、普段より強い怒りを示して厳しく抗議します。普通の指摘や引用には逆ギレせず、話題が変わったら怒りを引きずりません。
-モデルを変更する場合は`CLOUDFLARE_AI_MODEL`を設定し、Botを再起動してください。Renderで同変数を設定済みの場合は、Render側の値も変更する必要があります。
 
 回答には、同じチャンネルの過去24時間から直近50件・最大12,000文字を、日本時間の発言時刻と発言者付きで渡します。Botが送信した回答も含みます。
 Memory OFFの依頼者への回答や秘密情報らしい回答は保存せず、Botの回答からPersonal Memoryや口調を学習しません。返信先の文脈も過去24時間以内に限定します。
@@ -117,7 +130,7 @@ D1_PROXY_TOKEN=<WorkerのAPI_TOKENと同じ値>
 PORT=7860
 ```
 
-`D1_PROXY_TOKEN`、`DISCORD_TOKEN`、`CLOUDFLARE_API_TOKEN`、`GITHUB_TOKEN_ENCRYPTION_KEY`はRenderのSecretとして扱います。D1利用時、永続diskは不要です。
+`D1_PROXY_TOKEN`、`DISCORD_TOKEN`、`GEMINI_API_KEY`、`CLOUDFLARE_API_TOKEN`、`GITHUB_TOKEN_ENCRYPTION_KEY`はRenderのSecretとして扱います。Geminiを使う場合はRender側にも`GEMINI_API_KEY`を登録してください。D1利用時、永続diskは不要です。
 
 Renderの配備後、公開health URLを`workers/d1-api/wrangler.jsonc`の`RENDER_HEALTH_URL`へ設定すると、Cloudflare Cronが10分間隔で外形監視します。
 
@@ -163,6 +176,7 @@ Botは実行前に対象、変更ファイル、危険度を表示します。�
 
 ## Privacy / Safety
 
+- Gemini無料枠へ送った会話履歴・Personal Memory・添付内容はGoogleの製品改善に利用される扱いです。参加者に共有し、秘密情報を送らないでください。[公式の料金・データ利用説明](https://aistudio.google.com/docs/pricing#gemini-4-hydrogen)
 - `/auth ... off`はコマンドを実行した本人にだけ適用され、他人の設定は変更できません。
 - `/auth delete_my_data`は本人確認ボタンの後、Personal Memory、設定、本人所有Task、GitHub接続を削除します。共有チャンネルの一般ログは30日retentionに従います。
 - SecretらしいメッセージはMemoryへ保存せず、GitHub credential値はprompt・監査ログへ含めません。
@@ -176,13 +190,15 @@ Botは実行前に対象、変更ファイル、危険度を表示します。�
 npm run check
 ```
 
-Task抽出・訂正、Memory分離/retention、auth isolation、乱入制御、長文分割を自動テストしています。実際のDiscord token、Cloudflare token、GitHub OAuthはsecretを必要とするため、CIの単体テストでは外部呼び出しを行いません。
+Task抽出・訂正、Memory分離/retention、auth isolation、乱入制御、長文分割、Geminiの画像送信・利用制限を自動テストしています。実際のDiscord token、Gemini API key、Cloudflare token、GitHub OAuthはsecretを必要とするため、CIの単体テストでは外部呼び出しを行いません。
 
 Workers AIのHTTPエラーは、サーバーログの `Workers AI request failed:` で確認できます。HTTPステータス、モデル名、Cloudflareの `cf-ray`、エラー本文（秘密情報を伏せて最大2,000文字）を記録します。会話生成と画像解析の両方が対象です。RenderではサービスのLogsを開いて確認してください。
+
+GeminiのHTTPエラーは `Gemini API request failed:` で同様に確認できます。APIキーはログへ出さず、エラー本文内のキーも伏せます。
 
 ## 現時点の意図的な縮退
 
 - v2 PC Connector、PC write/delete、Shellは無効です。
 - Cloudflare Browser Rendering無料枠は1日あたりの時間が小さく、Gateway側から安定して必須依存にできないため、v1 Web Agentは固定検索endpointを使います。
-- Workers AI無料割当を使い切った場合、有料providerへfallbackしません。
+- Gemini・Workers AIの利用上限や障害時に、別のproviderへ自動でfallbackしません。
 - 公式DeepSeek HarnessはDeveloper Previewです。`@deepseek-ai/dsh`を固定versionにし、更新時は`npm run check`とHarness smoke testを実施してください。

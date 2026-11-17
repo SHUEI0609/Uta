@@ -8,6 +8,7 @@ import { AuthService } from '../src/services/auth.js';
 import { GithubService } from '../src/services/github.js';
 import { InterruptionService } from '../src/services/interruption.js';
 import { MemoryService } from '../src/services/memory.js';
+import { RateLimitError } from '../src/services/quota.js';
 import { TaskService } from '../src/services/tasks.js';
 import { WebService } from '../src/services/web.js';
 import { AppDatabase } from '../src/storage/database.js';
@@ -158,6 +159,15 @@ describe('Conversation history', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     await ask('slash', '説明して');
     expect(sent[0]?.content).toContain('AI生成機能を利用できません');
+    expect((await db.recentMessages('c')).filter((message) => message.authorId === 'bot')).toEqual([]);
+  });
+
+  it('一時的な利用制限を終日停止と案内せず、会話履歴にも保存しない', async () => {
+    generationError = new RateLimitError('Gemini APIの一時的な利用制限です。少し待って再度試してください。');
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await ask('slash', '説明して');
+
+    expect(sent[0]?.content).toBe(generationError.message);
     expect((await db.recentMessages('c')).filter((message) => message.authorId === 'bot')).toEqual([]);
   });
 

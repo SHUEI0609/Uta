@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import type { AppConfig } from '../config.js';
 import type { LlmProvider, LlmRequest } from '../types/index.js';
 import type { QuotaService } from '../services/quota.js';
+import { RateLimitError } from '../services/quota.js';
 
 const execFileAsync = promisify(execFile);
 const SYSTEM_PROMPT = [
@@ -19,13 +20,18 @@ const SYSTEM_PROMPT = [
 ].join('\n');
 
 export class HarnessProvider implements LlmProvider {
-  readonly name = 'cloudflare-workers-ai-free';
+  readonly name: string;
 
   constructor(private readonly config: AppConfig, private readonly quota: QuotaService) {
-    mkdirSync(config.dshHome, { recursive: true, mode: 0o700 });
+    this.name = config.geminiApiKey ? 'gemini-4-hydrogen' : 'cloudflare-workers-ai-free';
+    if (!config.geminiApiKey) mkdirSync(config.dshHome, { recursive: true, mode: 0o700 });
   }
 
   async complete(request: LlmRequest): Promise<string> {
+    if (this.config.geminiApiKey) {
+      await this.quota.assertAvailable();
+      return this.completeGemini(request);
+    }
     this.assertConfigured();
     await this.quota.assertAvailable();
     let prompt = request.prompt;
@@ -72,6 +78,52 @@ export class HarnessProvider implements LlmProvider {
   }
 
   async close(): Promise<void> {}
+
+  private async completeGemini(request: LlmRequest): Promise<string> {
+    const parts: Array<{ text: string } | { inlineData: { mimeType: string; data: string } }> = [{ text: request.prompt }];
+    for (const image of request.imageDataUrls ?? []) {
+      const match = image.match(/^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/]+={0,2})$/iu);
+      if (!match) throw new Error('画像データの形式が不正です。');
+      parts.push({ inlineData: { mimeType: match[1]!, data: match[2]! } });
+    }
+    const body = JSON.stringify({
+      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
+      contents: [{ role: 'user', parts }],
+      generationConfig: { maxOutputTokens: 4096, thinkingConfig: { thinkingLevel: 'low' } },
+    });
+    if (Buffer.byteLength(body, 'utf8') > 20_000_000) {
+      throw new Error('リクエストが20MBを超えています。画像のサイズや枚数を減らしてください。');
+    }
+    await this.quota.consume();
+    const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent', {
+      method: 'POST',
+      headers: { 'x-goog-api-key': this.config.geminiApiKey!, 'Content-Type': 'application/json' },
+      body,
+      signal: AbortSignal.timeout(this.config.aiTimeoutMs),
+    });
+    if (!response.ok) {
+      if (response.status === 429) {
+        const failure = await response.clone().json().catch(() => null) as {
+          error?: { details?: Array<{ violations?: Array<{ quotaId?: string }> }> };
+        } | null;
+        const daily = failure?.error?.details?.some((detail) =>
+          detail.violations?.some((violation) => /PerDay/iu.test(violation.quotaId ?? '')));
+        await this.logFailure(response, this.name, 'Gemini API');
+        // Googleの日次枠は太平洋時間でリセットされるため、UTC日付の停止フラグは使わない。
+        if (daily) throw new RateLimitError('Gemini APIの1日あたりの利用上限に達しました。Google側のリセット後に再度試してください。');
+        throw new RateLimitError('Gemini APIの一時的な利用制限に達しました。少し時間をおいて再度試してください。日次上限の場合はGoogle側のリセット待ちです。');
+      }
+      await this.logFailure(response, this.name, 'Gemini API');
+      throw new Error(`Gemini APIへの接続に失敗しました (${response.status})。`);
+    }
+    const json = await response.json() as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
+    };
+    const answer = json.candidates?.[0]?.content?.parts?.filter((part) => !part.thought)
+      .map((part) => part.text ?? '').join('').trim();
+    if (!answer) throw new Error('Gemini APIから空の応答が返りました。');
+    return answer;
+  }
 
   private assertConfigured(): void {
     if (!this.config.cloudflareAccountId || !this.config.cloudflareApiToken) {
@@ -131,9 +183,10 @@ export class HarnessProvider implements LlmProvider {
     return `画像${index}: ${json.choices?.[0]?.message?.content ?? '内容を取得できませんでした。'}`;
   }
 
-  private async logFailure(response: Response, model: string): Promise<void> {
+  private async logFailure(response: Response, model: string, service = 'Workers AI'): Promise<void> {
     let body = await response.text().catch(() => '[response body unavailable]');
     for (const secret of [
+      this.config.geminiApiKey,
       this.config.cloudflareApiToken,
       this.config.cloudflareAccountId,
       this.config.discordToken,
@@ -144,7 +197,7 @@ export class HarnessProvider implements LlmProvider {
     }
     body = body.replace(/Bearer\s+\S+/giu, 'Bearer [REDACTED]')
       .replace(/sk-[A-Za-z0-9_-]+/gu, '[REDACTED]');
-    console.error('Workers AI request failed:', {
+    console.error(`${service} request failed:`, {
       status: response.status,
       model,
       cfRay: response.headers.get('cf-ray'),
