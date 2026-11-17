@@ -124,6 +124,18 @@ describe('Conversation history', () => {
     expect(sent).toHaveLength(1);
   });
 
+  it('準備と生成の所要時間をメッセージ本文なしで記録する', async () => {
+    const infoLog = vi.spyOn(console, 'info').mockImplementation(() => {});
+    answer = '秘密の返答';
+    await ask('message', '秘密の質問');
+
+    expect(infoLog).toHaveBeenCalledWith('AI timing:', {
+      beforeRouterMs: expect.any(Number), contextMs: expect.any(Number), llmMs: expect.any(Number),
+      totalMs: expect.any(Number), inputChars: expect.any(Number), outputChars: 5,
+    });
+    expect(JSON.stringify(infoLog.mock.calls)).not.toMatch(/秘密の質問|秘密の返答|田中/u);
+  });
+
   it('返信先も24時間以内に限定し、時刻と発言者を渡す', async () => {
     const request = { guildId: 'g', channelId: 'c', userId: 'u', userName: '田中', prompt: '続きを教えて' };
     await services.router.handle({ ...request, sourceId: 'old-reference', replyContext: {

@@ -95,6 +95,7 @@ export class HarnessProvider implements LlmProvider {
       throw new Error('リクエストが20MBを超えています。画像のサイズや枚数を減らしてください。');
     }
     await this.quota.consume();
+    const apiStarted = performance.now();
     const response = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-4-hydrogen:generateContent', {
       method: 'POST',
       headers: { 'x-goog-api-key': this.config.geminiApiKey!, 'Content-Type': 'application/json' },
@@ -118,7 +119,14 @@ export class HarnessProvider implements LlmProvider {
     }
     const json = await response.json() as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: string; thought?: boolean }> } }>;
+      modelVersion?: string;
+      usageMetadata?: { promptTokenCount?: number; candidatesTokenCount?: number; thoughtsTokenCount?: number };
     };
+    console.info('Gemini timing:', {
+      model: json.modelVersion ?? this.name, apiMs: Math.round(performance.now() - apiStarted),
+      inputTokens: json.usageMetadata?.promptTokenCount, outputTokens: json.usageMetadata?.candidatesTokenCount,
+      thinkingTokens: json.usageMetadata?.thoughtsTokenCount,
+    });
     const answer = json.candidates?.[0]?.content?.parts?.filter((part) => !part.thought)
       .map((part) => part.text ?? '').join('').trim();
     if (!answer) throw new Error('Gemini APIから空の応答が返りました。');

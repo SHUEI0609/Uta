@@ -68,6 +68,25 @@ describe('Gemini Hydrogen', () => {
     }
   });
 
+  it('Geminiの所要時間とトークン数を本文やAPIキーなしで記録する', async () => {
+    const quota = fakeQuota();
+    const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
+    const infoLog = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(Response.json({
+      modelVersion: 'gemini-4-hydrogen',
+      usageMetadata: { promptTokenCount: 2500, candidatesTokenCount: 50, thoughtsTokenCount: 120 },
+      candidates: [{ content: { parts: [{ text: '秘密の返答' }] } }],
+    })));
+
+    await new HarnessProvider(settings, quota.service).complete({ prompt: '秘密の質問', route: 'light' });
+
+    expect(infoLog).toHaveBeenCalledWith('Gemini timing:', {
+      model: 'gemini-4-hydrogen', apiMs: expect.any(Number), inputTokens: 2500, outputTokens: 50, thinkingTokens: 120,
+    });
+    const logged = JSON.stringify(infoLog.mock.calls);
+    expect(logged).not.toMatch(/秘密|gemini-secret/u);
+  });
+
   it('分単位の429では終日停止せず、次の依頼で再度生成できる', async () => {
     const quota = fakeQuota();
     const settings = { ...config(dataDir), geminiApiKey: 'gemini-secret' };
