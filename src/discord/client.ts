@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto';
+import { randomInt } from 'node:crypto';
 import {
   ActionRowBuilder, Attachment, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, Client,
   Events, GatewayIntentBits, Message, MessageFlags, Partials, type ButtonInteraction,
@@ -71,8 +71,27 @@ async function handleCommand(interaction: ChatInputCommandInteraction, services:
   const channelId = interaction.channelId;
   if (interaction.commandName === 'url') {
     await interaction.reply({ content: 'ランダムなURLを生成しています...' });
-    const url = `https://${randomBytes(12).toString('hex')}.com`;
-    await interaction.editReply(url);
+    const urls = [
+      'https://ja.wikipedia.org/wiki/メインページ',
+      'https://www.python.org/',
+      'https://github.com/',
+      'https://developer.mozilla.org/ja/',
+      'https://www.cloudflare.com/',
+      'https://www.openstreetmap.org/',
+    ];
+    while (urls.length) {
+      const url = urls.splice(randomInt(urls.length), 1)[0]!;
+      let response: Response;
+      try {
+        response = await fetch(url, { method: 'HEAD', redirect: 'error', signal: AbortSignal.timeout(3_000) });
+      } catch {
+        continue;
+      }
+      if (!response.ok) continue;
+      await interaction.editReply(url);
+      return;
+    }
+    await interaction.editReply('アクセスできるURLが見つかりませんでした。しばらくしてから再度お試しください。');
     return;
   }
   if (interaction.commandName === 'ai') {

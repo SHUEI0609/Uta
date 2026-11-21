@@ -6,7 +6,7 @@ const onOff = [
 ] as const;
 
 export const commandDefinitions = [
-  new SlashCommandBuilder().setName('url').setDescription('ランダムなURLを生成する'),
+  new SlashCommandBuilder().setName('url').setDescription('アクセスできる実在サイトのURLをランダムに表示する'),
   new SlashCommandBuilder()
     .setName('ai').setDescription('AIへ明示的に質問・依頼する')
     .addStringOption((option) => option.setName('text').setDescription('質問または依頼'))

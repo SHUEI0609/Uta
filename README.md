@@ -4,7 +4,7 @@
 
 ## 実装済み機能
 
-- `/ai`、`/auth`、`/tasks`、`/memory`、`/url`（ランダムなURLを生成）
+- `/ai`、`/auth`、`/tasks`、`/memory`、`/url`（実在サイト6件の候補からランダムに選び、HTTPSで正常応答したURLだけを表示）
 - Mention、BotへのReply、移行期間用の既存`!ai`
 - Discordの上限に合わせた、コードフェンスを保つ長文分割
 - 同一チャンネルに限定した30日Memory、過去24時間の会話参照、Personal Memory、長期Server Personality要約
