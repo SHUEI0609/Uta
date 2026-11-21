@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   ActionRowBuilder, Attachment, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, Client,
   Events, GatewayIntentBits, Message, MessageFlags, Partials, type ButtonInteraction,
@@ -68,6 +69,12 @@ export function createDiscordClient(config: AppConfig, services: DiscordServices
 async function handleCommand(interaction: ChatInputCommandInteraction, services: DiscordServices): Promise<void> {
   const guildId = interaction.guildId ?? 'dm';
   const channelId = interaction.channelId;
+  if (interaction.commandName === 'url') {
+    await interaction.reply({ content: 'ランダムなURLを生成しています...' });
+    const url = `https://${randomBytes(12).toString('hex')}.com`;
+    await interaction.editReply(url);
+    return;
+  }
   if (interaction.commandName === 'ai') {
     const prompt = interaction.options.getString('text')?.trim() ?? '';
     const attachments = ['file1', 'file2', 'file3'].flatMap((name) => {

@@ -4,7 +4,7 @@
 
 ## 実装済み機能
 
-- `/ai`、`/auth`、`/tasks`、`/memory`
+- `/ai`、`/auth`、`/tasks`、`/memory`、`/url`（ランダムなURLを生成）
 - Mention、BotへのReply、移行期間用の既存`!ai`
 - Discordの上限に合わせた、コードフェンスを保つ長文分割
 - 同一チャンネルに限定した30日Memory、過去24時間の会話参照、Personal Memory、長期Server Personality要約
@@ -182,7 +182,7 @@ Botは実行前に対象、変更ファイル、危険度を表示します。�
 - SecretらしいメッセージはMemoryへ保存せず、GitHub credential値はprompt・監査ログへ含めません。
 - ZIPは10MB、50 files、展開後20MBまで。実行ファイルは実行しません。
 - HarnessのShell/File/Web toolsは`config/dsh.cordis.patch.yml`で無効です。外部操作はDiscord側の認可済みserviceだけが行います。
-- 無料AI停止中も`/auth`、`/tasks`、`/memory`、retention cleanupは継続します。
+- 無料AI停止中も`/auth`、`/tasks`、`/memory`、`/url`、retention cleanupは継続します。
 
 ## テスト
 
