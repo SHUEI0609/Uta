@@ -1,4 +1,3 @@
-import { randomInt } from 'node:crypto';
 import {
   ActionRowBuilder, Attachment, ButtonBuilder, ButtonStyle, ChatInputCommandInteraction, Client,
   Events, GatewayIntentBits, Message, MessageFlags, Partials, type ButtonInteraction,
@@ -10,6 +9,7 @@ import type { MemoryService } from '../services/memory.js';
 import type { TaskService } from '../services/tasks.js';
 import type { InterruptionService } from '../services/interruption.js';
 import type { GithubService } from '../services/github.js';
+import { findRandomUrl } from '../services/random-url.js';
 import type { HarnessRouter } from '../harness/router.js';
 import type { AttachmentInput, ChatRequest, ChatResult, UserSettings } from '../types/index.js';
 import { commandDefinitions } from './commands.js';
@@ -71,27 +71,9 @@ async function handleCommand(interaction: ChatInputCommandInteraction, services:
   const channelId = interaction.channelId;
   if (interaction.commandName === 'url') {
     await interaction.reply({ content: 'ランダムなURLを生成しています...' });
-    const urls = [
-      'https://ja.wikipedia.org/wiki/メインページ',
-      'https://www.python.org/',
-      'https://github.com/',
-      'https://developer.mozilla.org/ja/',
-      'https://www.cloudflare.com/',
-      'https://www.openstreetmap.org/',
-    ];
-    while (urls.length) {
-      const url = urls.splice(randomInt(urls.length), 1)[0]!;
-      let response: Response;
-      try {
-        response = await fetch(url, { method: 'HEAD', redirect: 'error', signal: AbortSignal.timeout(3_000) });
-      } catch {
-        continue;
-      }
-      if (!response.ok) continue;
-      await interaction.editReply(url);
-      return;
-    }
-    await interaction.editReply('アクセスできるURLが見つかりませんでした。しばらくしてから再度お試しください。');
+    const reply = await interaction.fetchReply();
+    const url = await findRandomUrl();
+    await reply.edit(url);
     return;
   }
   if (interaction.commandName === 'ai') {

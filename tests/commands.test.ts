@@ -1,14 +1,42 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { EventEmitter } from 'node:events';
+import { IncomingMessage } from 'node:http';
+import { Socket } from 'node:net';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChatInputCommandInteraction, Client } from 'discord.js';
 import { loadConfig } from '../src/config.js';
 import { createDiscordClient, type DiscordServices } from '../src/discord/client.js';
 import { commandDefinitions } from '../src/discord/commands.js';
 
+const { resolve4, request, randomInt } = vi.hoisted(() => ({
+  resolve4: vi.fn(), request: vi.fn(), randomInt: vi.fn(),
+}));
+
+vi.mock('node:dns/promises', () => ({ Resolver: class { resolve4 = resolve4; } }));
+vi.mock('node:https', () => ({ request }));
+vi.mock('node:crypto', async (importOriginal) => ({
+  ...await importOriginal<typeof import('node:crypto')>(), randomInt,
+}));
+
 describe('/url', () => {
   let client: Client;
+  let statuses: number[];
+
+  beforeEach(() => {
+    let number = 0;
+    randomInt.mockReset().mockImplementation((min: number, max?: number) => max ? 3 : number++ % min);
+    resolve4.mockReset().mockResolvedValue(['93.184.216.34']);
+    statuses = [200];
+    request.mockReset().mockImplementation((_options, callback) => {
+      const outgoing = new EventEmitter();
+      return Object.assign(outgoing, { end: () => {
+        const response = new IncomingMessage(new Socket());
+        response.statusCode = statuses.shift() ?? 200;
+        callback(response);
+      } });
+    });
+  });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
     await client?.destroy();
   });
 
@@ -19,62 +47,64 @@ describe('/url', () => {
   async function runCommand(): Promise<string[]> {
     client = createDiscordClient(loadConfig(), {} as DiscordServices);
     const replies: string[] = [];
+    const edit = async (content: string) => { replies.push(content); };
     const interaction = {
-      isChatInputCommand: () => true,
-      commandName: 'url',
+      isChatInputCommand: () => true, commandName: 'url',
       reply: async (value: { content: string }) => { replies.push(value.content); },
-      editReply: async (content: string) => {
-        expect(replies.at(-1)).toBe('ランダムなURLを生成しています...');
-        replies.push(content);
-      },
+      fetchReply: async () => ({ edit }),
+      editReply: async () => { throw new Error('Interaction token expired'); },
     } as unknown as ChatInputCommandInteraction;
 
     await client.listeners('interactionCreate')[0]!(interaction);
     return replies;
   }
 
-  it('生成中の表示をHTTPSで正常応答したURLに更新する', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+  it('ランダム生成したドメインのHTTPS応答を確認して表示する', async () => {
+    expect(await runCommand()).toEqual(['ランダムなURLを生成しています...', 'https://000.com/']);
+    expect(resolve4).toHaveBeenCalledWith('000.com');
+    expect(request).toHaveBeenCalledWith(expect.objectContaining({
+      hostname: '93.184.216.34', servername: '000.com', headers: { Host: '000.com' },
+      method: 'HEAD', signal: expect.any(AbortSignal),
+    }), expect.any(Function));
+  });
 
-    const replies = await runCommand();
+  it('20回失敗しても新しいURLを生成し続け、成功したものだけを表示する', async () => {
+    statuses = [...Array(20).fill(404), 200];
+    expect(await runCommand()).toEqual(['ランダムなURLを生成しています...', 'https://00k.com/']);
+    expect(resolve4).toHaveBeenCalledTimes(21);
+    expect(new Set(resolve4.mock.calls.map(([host]) => host)).size).toBe(21);
+  });
 
-    expect(replies).toHaveLength(2);
-    expect(replies[1]).toMatch(/^https:\/\//u);
-    expect(fetchMock).toHaveBeenCalledOnce();
-    expect(fetchMock).toHaveBeenCalledWith(replies[1], {
-      method: 'HEAD', redirect: 'error', signal: expect.any(AbortSignal),
+  it('5文字のドメインもランダム生成する', async () => {
+    randomInt.mockReturnValueOnce(5).mockReturnValueOnce(36 ** 5 - 1);
+    expect((await runCommand())[1]).toBe('https://zzzzz.com/');
+  });
+
+  it.each([301, 403, 404, 500])('HTTP %i のURLは表示しない', async (status) => {
+    statuses = [status, 200];
+    expect((await runCommand())[1]).toBe('https://001.com/');
+  });
+
+  it('DNSで見つからないドメインは飛ばす', async () => {
+    resolve4.mockRejectedValueOnce(new Error('ENOTFOUND'));
+    expect((await runCommand())[1]).toBe('https://001.com/');
+    expect(request).toHaveBeenCalledTimes(1);
+  });
+
+  it('HTTPS接続に失敗しても次のURLを試す', async () => {
+    request.mockImplementationOnce(() => {
+      const outgoing = new EventEmitter();
+      return Object.assign(outgoing, { end: () => outgoing.emit('error', new Error('TLS failed')) });
     });
+    expect((await runCommand())[1]).toBe('https://001.com/');
   });
 
-  it('接続失敗とHTTPエラーのURLを返さず次の候補を確認する', async () => {
-    const fetchMock = vi.fn()
-      .mockRejectedValueOnce(new DOMException('Timed out', 'TimeoutError'))
-      .mockResolvedValueOnce(new Response(null, { status: 404 }))
-      .mockResolvedValue(new Response(null, { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const replies = await runCommand();
-
-    expect(fetchMock).toHaveBeenCalledTimes(3);
-    const urls = fetchMock.mock.calls.map(([url]) => url);
-    expect(new Set(urls).size).toBe(3);
-    expect(replies[1]).toBe(urls[2]);
-  });
-
-  it.each(['network', 'http'])('全候補が失敗した場合はURLを返さず終了する: %s', async (failure) => {
-    const fetchMock = vi.fn();
-    if (failure === 'network') fetchMock.mockRejectedValue(new TypeError('fetch failed'));
-    else fetchMock.mockResolvedValue(new Response(null, { status: 503 }));
-    vi.stubGlobal('fetch', fetchMock);
-
-    const replies = await runCommand();
-
-    expect(replies).toEqual([
-      'ランダムなURLを生成しています...',
-      'アクセスできるURLが見つかりませんでした。しばらくしてから再度お試しください。',
-    ]);
-    expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
-    expect(fetchMock.mock.calls.length).toBeLessThanOrEqual(10);
+  it.each(['0.0.0.0', '10.0.0.1', '100.64.0.1', '127.0.0.1', '169.254.169.254',
+    '172.16.0.1', '192.168.0.1', '198.18.0.1', '224.0.0.1', '255.255.255.255'])
+  ('内部・特殊アドレス %s には接続しない', async (address) => {
+    resolve4.mockResolvedValueOnce([address]);
+    expect((await runCommand())[1]).toBe('https://001.com/');
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request.mock.calls[0]?.[0].hostname).toBe('93.184.216.34');
   });
 });
