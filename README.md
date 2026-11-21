@@ -4,7 +4,7 @@
 
 ## 実装済み機能
 
-- `/ai`、`/auth`、`/tasks`、`/memory`、`/url`（英数字3〜5文字の `.com` URLをランダム生成し、HTTPSで2xxが返るまで探索。固定候補・試行回数の上限なし。IPv4の公開アドレスだけを確認し、転送先はたどりません）
+- `/ai`、`/auth`、`/tasks`、`/memory`、`/url`（英数字5〜15文字の `.com` URLをランダム生成し、HTTPSで2xxが返るまで探索。固定候補・試行回数の上限なし。IPv4の公開アドレスだけを確認し、転送先はたどりません）
 - Mention、BotへのReply、移行期間用の既存`!ai`
 - Discordの上限に合わせた、コードフェンスを保つ長文分割
 - 同一チャンネルに限定した30日Memory、過去24時間の会話参照、Personal Memory、長期Server Personality要約

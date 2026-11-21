@@ -16,8 +16,11 @@ for (const [address, prefix] of [
 
 export async function findRandomUrl(): Promise<string> {
   while (true) {
-    const length = randomInt(3, 6);
-    const name = randomInt(36 ** length).toString(36).padStart(length, '0');
+    const length = randomInt(5, 16);
+    let name = '';
+    for (let index = 0; index < length; index++) {
+      name += randomInt(36).toString(36);
+    }
     const hostname = `${name}.com`;
     let addresses: string[];
     try {
